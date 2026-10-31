@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -58,11 +58,20 @@
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
   </ItemGroup>
 
-  <ItemGroup>
+  <!-- The tablebase wrapper is C++/CLI and is only built for Windows desktop targets. -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' != 'linux-bionic-arm64'">
     <ProjectReference Include="..\Pedantic.Tablebase\Pedantic.Tablebase.vcxproj">
         <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </ProjectReference>
   </ItemGroup>
+
+  <!-- Android Bionic Native AOT: omit the Windows-only tablebase bridge. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'linux-bionic-arm64'">
+    <DefineConstants>$(DefineConstants);PEDANTIC_ANDROID_BIONIC</DefineConstants>
+    <PublishAot>true</PublishAot>
+    <SelfContained>true</SelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
 
   <ItemGroup>
     <Compile Update="Resource.Designer.cs">

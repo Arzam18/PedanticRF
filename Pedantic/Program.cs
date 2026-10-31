@@ -1,4 +1,4 @@
-﻿// <copyright file="Program.cs" company="JoAnn D. Peeler">
+// <copyright file="Program.cs" company="JoAnn D. Peeler">
 // Copyright (c) JoAnn D. Peeler. All rights reserved.
 //
 // Licensed under the MIT license. See LICENSE file in the project root for full
@@ -14,7 +14,9 @@ namespace Pedantic
     using Pedantic.Chess;
     using Pedantic.Chess.DataGen;
     using Pedantic.Chess.NNUE;
+#if !PEDANTIC_ANDROID_BIONIC
     using Pedantic.Tablebase;
+#endif
 
     public class Program
     {
@@ -250,6 +252,9 @@ namespace Pedantic
                         break;
 
                     case "syzygypath":
+#if PEDANTIC_ANDROID_BIONIC
+                        Uci.Default.Log("Syzygy tablebases are not available in this Android build.");
+#else
                         string path = UciOptions.SyzygyPath;
                         if (path != string.Empty && string.Compare(path, "<empty>", true) != 0)
                         {
@@ -266,6 +271,7 @@ namespace Pedantic
                                 }
                             }
                         }
+#endif
                         break;
 
                     default:
