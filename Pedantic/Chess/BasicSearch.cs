@@ -949,9 +949,8 @@ namespace Pedantic.Chess
                 }
             }
             return false;
-        }
-
 #endif
+        }
 
         private void SetAspWindow(int depth, int iAlpha, int iBeta, out int alpha, out int beta)
         {
