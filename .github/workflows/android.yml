@@ -1,0 +1,180 @@
+
+name: Build Pedantic Android ARM64
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    name: Android ARM64 Native AOT
+    runs-on: ubuntu-22.04
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+      ANDROID_API_LEVEL: 24
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install .NET SDK 9.0.102
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.102
+
+      - name: Download Android NDK r26b
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd "$RUNNER_TEMP"
+
+          curl -fL \
+            https://dl.google.com/android/repository/android-ndk-r26b-linux.zip \
+            -o android-ndk.zip
+
+          unzip -q android-ndk.zip
+
+          echo "ANDROID_NDK_ROOT=$RUNNER_TEMP/android-ndk-r26b" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$RUNNER_TEMP/android-ndk-r26b" >> "$GITHUB_ENV"
+
+          echo "$RUNNER_TEMP/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Android toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -x "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+
+          clang --version
+          echo "NDK: $ANDROID_NDK_ROOT"
+
+      - name: Exclude Windows-only tablebase project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          project = Path("Pedantic/Pedantic.csproj")
+          source = project.read_text(encoding="utf-8-sig")
+
+          groups = list(re.finditer(
+              r"<ItemGroup\b[^>]*>.*?</ItemGroup>",
+              source,
+              flags=re.DOTALL
+          ))
+
+          matches = [
+              match for match in groups
+              if "Pedantic.Tablebase.vcxproj" in match.group(0)
+          ]
+
+          if len(matches) != 1:
+              raise SystemExit(
+                  "Expected exactly one ItemGroup containing "
+                  "Pedantic.Tablebase.vcxproj; found "
+                  + str(len(matches))
+              )
+
+          match = matches[0]
+          source = source[:match.start()] + source[match.end():]
+          project.write_text(source, encoding="utf-8")
+
+          print("Removed Windows-only tablebase project reference for this CI build.")
+          PY
+
+      - name: Verify Android tablebase guards
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          grep -q "PEDANTIC_ANDROID_BIONIC" Pedantic/Program.cs
+          grep -q "PEDANTIC_ANDROID_BIONIC" Pedantic/Chess/Engine.cs
+          grep -q "PEDANTIC_ANDROID_BIONIC" Pedantic/Chess/BasicSearch.cs
+
+          if grep -q "Pedantic.Tablebase.vcxproj" Pedantic/Pedantic.csproj; then
+            echo "::error::Windows tablebase project reference was not removed."
+            exit 1
+          fi
+
+          echo "Android source guards verified."
+
+      - name: Restore dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          dotnet restore Pedantic/Pedantic.csproj \
+            -r linux-bionic-arm64
+
+      - name: Publish Android ARM64 Native AOT
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          dotnet publish Pedantic/Pedantic.csproj \
+            --configuration Release \
+            --framework net9.0 \
+            --runtime linux-bionic-arm64 \
+            --self-contained true \
+            --no-restore \
+            -p:PublishAot=true \
+            -p:PublishAotUsingRuntimePack=true \
+            -p:DisableUnsupportedError=true \
+            -p:DefineConstants=PEDANTIC_ANDROID_BIONIC \
+            -p:InvariantGlobalization=true \
+            -p:StripSymbols=true
+
+      - name: Verify executable
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BINARY="Pedantic/bin/Release/net9.0/linux-bionic-arm64/publish/Pedantic"
+
+          if [ ! -f "$BINARY" ]; then
+            echo "::error::Native AOT executable not found: $BINARY"
+            find Pedantic/bin/Release -type f -maxdepth 8
+            exit 1
+          fi
+
+          chmod +x "$BINARY"
+
+          echo "===== File information ====="
+          file "$BINARY"
+
+          echo "===== ELF header ====="
+          readelf -h "$BINARY"
+
+          readelf -h "$BINARY" | grep -q "ELF64"
+          readelf -h "$BINARY" | grep -q "AArch64"
+
+          echo "===== Dynamic dependencies ====="
+          readelf -d "$BINARY" || true
+
+          echo "===== Program interpreter ====="
+          readelf -l "$BINARY" | grep -i interpreter || true
+
+          echo "Android ARM64 ELF verification passed."
+
+      - name: Upload Android ARM64 executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pedantic-Android-ARM64
+          path: Pedantic/bin/Release/net9.0/linux-bionic-arm64/publish/Pedantic
+          if-no-files-found: error
+          retention-days: 30
