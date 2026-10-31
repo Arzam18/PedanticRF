@@ -1,4 +1,4 @@
-﻿// <copyright file="Engine.cs" company="JoAnn D. Peeler">
+// <copyright file="Engine.cs" company="JoAnn D. Peeler">
 // Copyright (c) JoAnn D. Peeler. All rights reserved.
 //
 // Licensed under the MIT license. See LICENSE file in the project root for full
@@ -8,7 +8,9 @@
 namespace Pedantic.Chess
 {
     using Pedantic.Chess.NNUE;
+#if !PEDANTIC_ANDROID_BIONIC
     using Pedantic.Tablebase;
+#endif
     using Pedantic.Utilities;
 
     public static class Engine
@@ -231,10 +233,18 @@ namespace Pedantic.Chess
             perft.Execute();
         }
 
-        private static bool ProbeRootTb(Board board, out Move move, out TbGameResult gameResult)
+#if PEDANTIC_ANDROID_BIONIC
+        private static bool ProbeRootTb(Board board, out Move move, out int gameResult)
         {
             move = Move.NullMove;
-            gameResult = TbGameResult.Draw;
+            gameResult = 0;
+            return false;
+        }
+#else
+        private static bool ProbeRootTb(Board board, out Move move, out int gameResult)
+        {
+            move = Move.NullMove;
+            gameResult = (int)TbGameResult.Draw;
             if (UciOptions.SyzygyProbeRoot && Syzygy.IsInitialized && BitOps.PopCount(board.All) <= Syzygy.TbLargest)
             {
                 moveList.Clear();
@@ -245,7 +255,7 @@ namespace Pedantic.Chess
                     (uint)(board.EnPassantValidated != SquareIndex.None ? board.EnPassantValidated : 0),
                     board.SideToMove == Color.White, null);
 
-                gameResult = result.Wdl;
+                gameResult = (int)result.Wdl;
                 SquareIndex from = (SquareIndex)result.From;
                 SquareIndex to = (SquareIndex)result.To;
                 uint tbPromotes = result.Promotes;
@@ -268,10 +278,12 @@ namespace Pedantic.Chess
             return false;
         }
 
+#endif
+
         private static bool ProbePvTb(Board board, Span<Move> pv, out int pvLen, out int score)
         {
             pvLen = 0; score = 0;
-            if (ProbeRootTb(board, out Move move, out TbGameResult gameResult))
+            if (ProbeRootTb(board, out Move move, out int gameResult))
             {
                 Board clone = board.Clone();
                 for (int ply = 0; ply < pv.Length; ply++)
@@ -283,15 +295,19 @@ namespace Pedantic.Chess
                         break;
                     }
                 }
+#if PEDANTIC_ANDROID_BIONIC
+                score = 0;
+#else
                 score = gameResult switch
                 {
-                    TbGameResult.Loss       => -CHECKMATE_SCORE,
-                    TbGameResult.BlessedLoss=> -CHECKMATE_SCORE,
-                    TbGameResult.Draw       => 0,
-                    TbGameResult.CursedWin  => CHECKMATE_SCORE,
-                    TbGameResult.Win        => CHECKMATE_SCORE,
+                    (int)TbGameResult.Loss        => -CHECKMATE_SCORE,
+                    (int)TbGameResult.BlessedLoss => -CHECKMATE_SCORE,
+                    (int)TbGameResult.Draw        => 0,
+                    (int)TbGameResult.CursedWin   => CHECKMATE_SCORE,
+                    (int)TbGameResult.Win         => CHECKMATE_SCORE,
                     _ => 0
                 };
+#endif
                 return true;
             }
             return false;

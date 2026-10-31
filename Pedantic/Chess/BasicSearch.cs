@@ -1,4 +1,4 @@
-﻿// <copyright file="BasicSearch.cs" company="JoAnn D. Peeler">
+// <copyright file="BasicSearch.cs" company="JoAnn D. Peeler">
 // Copyright (c) JoAnn D. Peeler. All rights reserved.
 //
 // Licensed under the MIT license. See LICENSE file in the project root for full
@@ -10,7 +10,9 @@ namespace Pedantic.Chess
     using System.Runtime.CompilerServices;
     using Pedantic.Chess.NNUE;
     using Pedantic.Collections;
+#if !PEDANTIC_ANDROID_BIONIC
     using Pedantic.Tablebase;
+#endif
     using Pedantic.Utilities;
 
     public sealed class BasicSearch : IInitialize
@@ -904,6 +906,10 @@ namespace Pedantic.Chess
 
         private bool ProbeTb(int depth, int ply, int alpha, int beta, out int score)
         {
+#if PEDANTIC_ANDROID_BIONIC
+            score = 0;
+            return false;
+#else
             score = 0;
             if (Syzygy.IsInitialized && depth >= UciOptions.SyzygyProbeDepth && 
                 BitOps.PopCount(board!.All) <= Syzygy.TbLargest)
@@ -944,6 +950,8 @@ namespace Pedantic.Chess
             }
             return false;
         }
+
+#endif
 
         private void SetAspWindow(int depth, int iAlpha, int iBeta, out int alpha, out int beta)
         {
