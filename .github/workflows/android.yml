@@ -21,7 +21,6 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       DOTNET_NOLOGO: 1
-      ANDROID_API_LEVEL: 24
       TARGET_RID: linux-bionic-arm64
 
     steps:
@@ -48,17 +47,12 @@ jobs:
         with:
           dotnet-version: 9.0.102
 
-      - name: Verify SDK version
+      - name: Verify SDK
         shell: bash
         run: |
           set -euo pipefail
-
           dotnet --version
-
-          if [ "$(dotnet --version)" != "9.0.102" ]; then
-            echo "::error::Wrong .NET SDK selected."
-            exit 1
-          fi
+          test "$(dotnet --version)" = "9.0.102"
 
       - name: Download Android NDK r26b
         shell: bash
@@ -73,18 +67,20 @@ jobs:
 
           unzip -q android-ndk.zip
 
-          echo "ANDROID_NDK_ROOT=$RUNNER_TEMP/android-ndk-r26b" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$RUNNER_TEMP/android-ndk-r26b" >> "$GITHUB_ENV"
+          NDK="$RUNNER_TEMP/android-ndk-r26b"
 
-          echo "$RUNNER_TEMP/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+          test -x "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
 
-      - name: Verify Android NDK
+          echo "ANDROID_NDK_ROOT=$NDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+
+          echo "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Android toolchain
         shell: bash
         run: |
           set -euo pipefail
-
-          test -x "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
-
+          which clang
           clang --version
 
       - name: Exclude Windows-only tablebase project
@@ -134,24 +130,11 @@ jobs:
           grep -q "PEDANTIC_ANDROID_BIONIC" Pedantic/Chess/BasicSearch.cs
 
           if grep -q "Pedantic.Tablebase.vcxproj" Pedantic/Pedantic.csproj; then
-            echo "::error::Tablebase project reference remains."
+            echo "::error::Windows tablebase reference still exists."
             exit 1
           fi
 
-          echo "Android guards verified."
-
-      - name: Restore Android Native AOT dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          dotnet restore Pedantic/Pedantic.csproj \
-            --runtime "$TARGET_RID" \
-            -p:PublishAot=true \
-            -p:PublishAotUsingRuntimePack=true \
-            -p:DisableUnsupportedError=true \
-            -p:InvariantGlobalization=true \
-            -p:DefineConstants=PEDANTIC_ANDROID_BIONIC
+          echo "Android source guards verified."
 
       - name: Publish Android ARM64 Native AOT
         shell: bash
@@ -163,13 +146,13 @@ jobs:
             --framework net9.0 \
             --runtime "$TARGET_RID" \
             --self-contained true \
-            --no-restore \
             -p:PublishAot=true \
             -p:PublishAotUsingRuntimePack=true \
             -p:DisableUnsupportedError=true \
             -p:InvariantGlobalization=true \
             -p:StripSymbols=true \
-            -p:DefineConstants=PEDANTIC_ANDROID_BIONIC
+            -p:DefineConstants=PEDANTIC_ANDROID_BIONIC \
+            --verbosity minimal
 
       - name: Verify executable
         shell: bash
@@ -186,19 +169,19 @@ jobs:
 
           chmod +x "$BINARY"
 
-          echo "===== File ====="
+          echo "===== File information ====="
           file "$BINARY"
 
-          echo "===== ELF Header ====="
+          echo "===== ELF header ====="
           readelf -h "$BINARY"
 
           readelf -h "$BINARY" | grep -q "ELF64"
           readelf -h "$BINARY" | grep -q "AArch64"
 
-          echo "===== Dynamic Dependencies ====="
+          echo "===== Dynamic dependencies ====="
           readelf -d "$BINARY" || true
 
-          echo "===== Program Interpreter ====="
+          echo "===== ELF interpreter ====="
           readelf -l "$BINARY" | grep -i interpreter || true
 
           echo "Android ARM64 ELF verification passed."
